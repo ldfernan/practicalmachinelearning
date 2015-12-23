@@ -1,0 +1,60 @@
+---
+title: "MachineLearnProject"
+author: "ldfernan"
+date: "November 22, 2015"
+output: html_document
+---
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cache=TRUE}
+require(dplyr)
+train<-read.csv("./data/pml-training.csv")
+test<-read.csv("./data/pml-testing.csv")
+
+summary(train)
+summary(test)
+View(test)
+
+library(caret)
+zeroVar<-nearZeroVar(train)
+train<-train[,-zeroVar]
+test<-test[,-zeroVar]
+#Removing NAs
+na_count <-sapply(train, function(y) sum(length(which(is.na(y)))))
+too_many_NAS<-which(colSums(is.na(train)) > 19000)
+train<-train[,-too_many_NAS]
+test<-test[,-too_many_NAS]
+
+train<-select(train,-X,-user_name,-raw_timestamp_part_1,-raw_timestamp_part_2,-cvtd_timestamp,-num_window)
+test<-select(test,-X,-user_name,-raw_timestamp_part_1,-raw_timestamp_part_2,-cvtd_timestamp,-num_window)
+dim(train)
+
+train_control <- trainControl(method="cv", number=5)# train the model 
+model<-train(classe~.,data=train,method="gbm",preProcess=c("scale","center"),trControl=train_control)
+model<-train(classe~.,data=train,method="rf",preProcess=c("scale","center"),trControl=train_control)
+
+
+# make predictions
+predictions <- predict(model,newdata=train)
+# summarize results
+confusionMatrix(predictions, train$classe)
+table(predictions, train$classe)
+predictions <- predict(model,newdata=test)
+pml_write_files(predictions)
+
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+```{r, echo=FALSE}
+plot(cars)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
