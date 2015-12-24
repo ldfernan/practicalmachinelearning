@@ -11,14 +11,25 @@ When you click the **Knit** button a document will be generated that includes bo
 
 ```{r cache=TRUE}
 require(dplyr)
+library(caret)
+
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
 train<-read.csv("./data/pml-training.csv")
 test<-read.csv("./data/pml-testing.csv")
 
 summary(train)
 summary(test)
-View(test)
+#View(test)
 
-library(caret)
+
 zeroVar<-nearZeroVar(train)
 train<-train[,-zeroVar]
 test<-test[,-zeroVar]
@@ -32,29 +43,32 @@ train<-select(train,-X,-user_name,-raw_timestamp_part_1,-raw_timestamp_part_2,-c
 test<-select(test,-X,-user_name,-raw_timestamp_part_1,-raw_timestamp_part_2,-cvtd_timestamp,-num_window)
 dim(train)
 
+inTr<-createDataPartition(y=train$classe,p=0.7,list=FALSE)
+train70<- train[inTr,]
+test30<-train[-inTr,]    
+dim(train70)
+dim(test30)
+    
 train_control <- trainControl(method="cv", number=5)# train the model 
-model<-train(classe~.,data=train,method="gbm",preProcess=c("scale","center"),trControl=train_control)
-model<-train(classe~.,data=train,method="rf",preProcess=c("scale","center"),trControl=train_control)
+#model<-train(classe~.,data=train,method="gbm",preProcess=c("scale","center"),trControl=train_control)
+model<-train(classe~.,data=train70,method="lda",preProcess=c("scale","center"),trControl=train_control)
+model<-train(classe~.,data=train70,method="qda",preProcess=c("scale","center"),trControl=train_control)
+#model<-train(classe~.,data=train,method="rf",preProcess=c("scale","center"),trControl=train_control)
 
 
 # make predictions
-predictions <- predict(model,newdata=train)
-# summarize results
-confusionMatrix(predictions, train$classe)
-table(predictions, train$classe)
-predictions <- predict(model,newdata=test)
+predictions <- predict(model,newdata=train70)
+confusionMatrix(predictions, train70$classe)
+
+predictions <- predict(model,newdata=test30)
+confusionMatrix(predictions, test30$classe)
+
+
 pml_write_files(predictions)
 
 
-pml_write_files = function(x){
-  n = length(x)
-  for(i in 1:n){
-    filename = paste0("problem_id_",i,".txt")
-    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
-  }
-}
-```{r, echo=FALSE}
-plot(cars)
+
+
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
