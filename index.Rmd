@@ -1,19 +1,22 @@
 ---
-title: "MachineLearnProject"
-author: "ldfernan"
-date: "November 22, 2015"
+title: "Practical Machine Learning Coursera Project"
+author: "Username:ldfernan"
+date: "December 24, 2015"
 output: html_document
 ---
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The goal of the machine learning exercise is to accurately predict the classe variable using the various on-body motion sensing readings available. 
 
-```{r cache=TRUE}
-require(dplyr)
-library(caret)
+## Reading Data
+We read data from csv files and also create functions to calculate error rates (misclassification rate) and create submission files
 
+```{r read_data,results="hide",warning=FALSE}
+require(dplyr);require(caret)
+set.seed(345)
 
+#Function:create submission files
 pml_write_files = function(x){
   n = length(x)
   for(i in 1:n){
@@ -21,54 +24,105 @@ pml_write_files = function(x){
     write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
   }
 }
-
+#Function calculate error rate
+err_rate = function(actual, pred) {
+    err<-sum(pred != actual)/length(actual)
+    paste("Error Rate is:",err,sep=" ")
+}
+#Read data from csv
 train<-read.csv("./data/pml-training.csv")
 test<-read.csv("./data/pml-testing.csv")
+```
 
-summary(train)
-summary(test)
-#View(test)
+## Investigate and plot data
+The train dataset has the "classe" variable and it is not present in test data. Also, the test dataset has the problem_id variable, which is not present in train. Scatterplot of existing variables, colored by classe variables did not show any interesting insights.
 
+```{r dimensions, cache=TRUE}
+dim(train)
+dim(test)
+#Arbitrary scatterplots did not show any linear classifications possible.
+qplot(pitch_forearm,roll_forearm,data=train,col=train$classe)
+qplot(accel_forearm_x,magnet_dumbbell_x,data=train,col=train$classe)
+qplot(total_accel_dumbbell,roll_forearm,data=train,col=train$classe)
+```
 
+## Preprocessing
+We will do some basic preprocessing to remove columns that have near-zero variability. We also see that there are few columns that have a large number of NAs. Since these do not add to the predictive ability of a model, we will remove these as well. With these, we will be down from ~160 variables to ~59 variables, without losing predictive power. 
+
+```{r preprocess, results="hide"}
+# Remove near-zero variability variables
 zeroVar<-nearZeroVar(train)
 train<-train[,-zeroVar]
 test<-test[,-zeroVar]
-#Removing NAs
+
+#Removing columns that have predominantly NAs, I have chosen a high arbitrary count of 19k 
 na_count <-sapply(train, function(y) sum(length(which(is.na(y)))))
 too_many_NAS<-which(colSums(is.na(train)) > 19000)
 train<-train[,-too_many_NAS]
 test<-test[,-too_many_NAS]
 
-train<-select(train,-X,-user_name,-raw_timestamp_part_1,-raw_timestamp_part_2,-cvtd_timestamp,-num_window)
-test<-select(test,-X,-user_name,-raw_timestamp_part_1,-raw_timestamp_part_2,-cvtd_timestamp,-num_window)
 dim(train)
+dim(test)
+```
 
+## Error estimation strategy using cross-validation
+We will now set up our data sets for cross validations in order to pick the best model and variables. By splitting(70:30) the train dataset into a train70 and test30, we can build models using train70 and estimate accuracy and error rates using cross validation. The function to calculate error rate( misclassification rate) is given earlier in this document. We can then validate it using the test30 to figure out if there is too much bias or too much variance. If error rate on train70 and test30 are almost similar then we have a good bias-variance trade-off and can be confident of correctly predicting the test data with similar error rates.
+
+```{r partition}
 inTr<-createDataPartition(y=train$classe,p=0.7,list=FALSE)
 train70<- train[inTr,]
 test30<-train[-inTr,]    
-dim(train70)
-dim(test30)
-    
-train_control <- trainControl(method="cv", number=5)# train the model 
-#model<-train(classe~.,data=train,method="gbm",preProcess=c("scale","center"),trControl=train_control)
-model<-train(classe~.,data=train70,method="lda",preProcess=c("scale","center"),trControl=train_control)
-model<-train(classe~.,data=train70,method="qda",preProcess=c("scale","center"),trControl=train_control)
-#model<-train(classe~.,data=train,method="rf",preProcess=c("scale","center"),trControl=train_control)
+dim(train70);dim(test30)
 
-
-# make predictions
-predictions <- predict(model,newdata=train70)
-confusionMatrix(predictions, train70$classe)
-
-predictions <- predict(model,newdata=test30)
-confusionMatrix(predictions, test30$classe)
-
-
-pml_write_files(predictions)
-
-
-
-
+#set up 5-fold cross validation
+train_control <- trainControl(method="cv", number=5)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## Model Building
+We start with simple LDA model, which warned us of the possibility of collinearity between variables. We will then remove collinear variables and fit a slightly flexible QDA model.
+
+```{r model_build}
+
+#Simple LDA model using train70 gives us collinear warning
+model<-train(classe~.,data=train70,method="lda",preProcess=c("scale","center"),trControl=train_control)
+
+# Remove more variables that may be collinear
+train70<-dplyr::select(train70,-X,-user_name,-raw_timestamp_part_1,-raw_timestamp_part_2,-cvtd_timestamp,-num_window)
+test30<-dplyr::select(test30,-X,-user_name,-raw_timestamp_part_1,-raw_timestamp_part_2,-cvtd_timestamp,-num_window)
+test<-dplyr::select(test,-X,-user_name,-raw_timestamp_part_1,-raw_timestamp_part_2,-cvtd_timestamp,-num_window)
+train<-dplyr::select(train,-X,-user_name,-raw_timestamp_part_1,-raw_timestamp_part_2,-cvtd_timestamp,-num_window)
+dim(train)
+
+#Rerun model. Looks like collinearity is taken care of.
+model<-train(classe~.,data=train70,method="lda",preProcess=c("scale","center"),trControl=train_control)
+# make predictions and estimate model error rate using cross validation
+# Model error rate is ~30% 
+predictions <- predict(model,newdata=train70)
+err_rate(predictions, train70$classe)
+
+#Fit Quadratic Discriminant analysis model
+model<-train(classe~.,data=train70,method="qda",preProcess=c("scale","center"),trControl=train_control)
+# QDA model error rate is ~10%
+predictions <- predict(model,newdata=train70)
+err_rate(predictions, train70$classe)
+```
+
+## Final model and submission
+The final model is the random forest model which has an error rate of 0% on train70. Hence we need to test it on test30 to see if we are overfitting. But testing on test30 also gives us an expected out of sample error rate to be 0.6%. We have been able to achieve a good bias variance trade-off. We are now ready to predict the "test" data set and make final submissions. We expect to get all 20 predictions correct based on this error rate (and I was able to get 19 out of 20 correct. In my second submission attempt I used gbm model that gave me 20 out of 20 correct. This is not necessarily my final model because the error rate was 3.4%). 
+
+```{r final_model, cache=TRUE}
+#Fit random forest model
+model<-train(classe~.,data=train70,method="rf",preProcess=c("scale","center"),trControl=train_control)
+
+predictions <- predict(model,newdata=train70)
+err_rate(predictions, train70$classe)
+predictions <- predict(model,newdata=test30)
+err_rate(predictions, test30$classe)
+
+# Make final predictions
+predictions <- predict(model,newdata=test)
+pml_write_files(predictions)
+```
+
+
+
